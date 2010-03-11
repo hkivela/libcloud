@@ -50,26 +50,40 @@ class SoftLayerConnection(object):
         self.key = key 
 
     def request(self, service, method, *args, **init_params):
+        """Do XML-RPC request against SoftLayer API
+        
+        init_params can have optional 'id' or 'object_mask' to identify
+        object to get and/or set the object_mask                
+        """
         sl = self.proxyCls(service)
-        params = [self._get_auth_param(service, init_params)] + list(args)
+                
+        params = [self._get_headers(service, init_params)] + list(args)
         try:
             return getattr(sl, method)(*params)
         except xmlrpclib.Fault, e:
             raise SoftLayerException(e)
 
-    def _get_auth_param(self, service, init_params=None):
+    def _get_headers(self, service, init_params=None):
+        
         if not init_params:
             init_params = {}
 
-        return {
-            'headers': {
-                'authenticate': {
-                    'username': self.user,
-                    'apiKey': self.key
-                },
-                '%sInitParameters' % service: init_params
-            }
+        headers = {                   
+                   'authenticate': {
+                            'username': self.user,
+                            'apiKey': self.key
+                            }                                        
         }
+        
+        if 'id' in init_params:
+            headers['%sInitParameters' % service] = {'id': init_params['id']}
+
+        if 'object_mask' in init_params:                        
+            headers['%sObjectMask' % service] = \
+                {'mask': init_params['object_mask']}
+
+        return { 'headers': headers }            
+        
 
 class SoftLayerNodeDriver(NodeDriver):
     connectionCls = SoftLayerConnection
@@ -83,19 +97,40 @@ class SoftLayerNodeDriver(NodeDriver):
         self.connection.driver = self
 
     def _to_node(self, host):
+        """Convert SoftLayer data to libcloud Node
+        
+        Note: hardware and virtualGuests data doesn't have same structure
+        
+        Note: original host data from SL is stored to extra
+        """
+        statusId = 0
+        if 'statusId' in host:
+            statusId = host['statusId']
+            
+        if 'hardwareStatusId' in host:
+            statusId = host['hardwareStatusId']            
+        
         return Node(
             id=host['id'],
             name=host['hostname'],
-            state=host['statusId'],
+            state=statusId,
             public_ip=host['primaryIpAddress'],
             private_ip=host['primaryBackendIpAddress'],
-            driver=self
-        )
+            driver=self,
+            extra=host
+            )
     
     def _to_nodes(self, hosts):
         return [self._to_node(h) for h in hosts]
 
     def destroy_node(self, node):
+        
+        if not 'virtual' in node.extra:
+            return False
+        
+        if node.extra['virtual'] == False:
+            return False
+        
         billing_item = self.connection.request(
             "SoftLayer_Virtual_Guest",
             "getBillingItem",
@@ -113,10 +148,39 @@ class SoftLayerNodeDriver(NodeDriver):
             return False
 
     def list_nodes(self):
-        nodes = self._to_nodes(
-            self.connection.request("SoftLayer_Account","getVirtualGuests")
+        """Returns all running nodes, including hardware and virtualGuests
+        """
+                
+        mask = {                
+                'hardware': {'softwareComponents.passwords': {}, 
+                             'primaryNetworkComponent': {},
+                             'primaryBackendNetworkComponent': {}, 
+                             'serverRoom': {},
+                             },
+                             
+                'virtualGuests': {
+                                  'softwareComponents.passwords': {}, 
+                                  'primaryNetworkComponent': {}, 
+                                  'primaryBackendNetworkComponent': {}, 
+                                  'serverRoom': {},
+                                  }                       
+                }
+        
+        account = self.connection.request('SoftLayer_Account', 'getObject', object_mask = mask)
+        
+        from pprint import pprint
+        pprint(account)
+        
+        hardware = self._to_nodes(
+            account['hardware']
         )
-        return nodes
+        
+        virtualguests =  self._to_nodes(
+            account['virtualGuests']
+        )
+        
+        return hardware+virtualguests
+        
 
     def reboot_node(self, node):
         res = self.connection.request(
