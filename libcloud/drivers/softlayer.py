@@ -14,15 +14,115 @@
 # limitations under the License.
 """
 Softlayer driver
+
+THIS IS WORK IN PROGRESS, NOT READY FOR ANYTHING BUT REVIEW AND COMMENTS.
+
+PLEASE GO TROUGH SOFTLAYER DOCUMENTATION BEFORE DOING ANYTHING STUPID.
+
+IT'S POSSIBLE TO MAKE RATHER EXPENSIVE ORDERS TROUGH THIS API SO BE ABSOLUTELY
+SURE YOU KNOW WHAT YOU'RE DOING.
+
+...
+
+Get familiar with SoftLayer API:
+
+http://sldn.softlayer.com/wiki/index.php/The_SoftLayer_API
+
+Thread about XML-RPC complexType support:
+
+http://forums.softlayer.com/showthread.php?t=4756
+
+XML-RPC ordering Python example from klaude:
+
+http://gist.github.com/328806
+
+...
+
+It's possible to construct a wide variety of orders
+
+You can get sample templates by manually ordering and then:
+
+virtual_guest_id = 12345 # get this from node.id
+
+template = driver.connection.request(
+                "SoftLayer_Virtual_Guest",
+                "getOrderTemplate",
+                'HOURLY',
+                id=virtual_guest_id)
+                
+from pprint import pprint
+pprint(template)
+
+This will return a lot of data but you can extract the price IDs from there
+
+
+There's one example in SOFTLAYER_INSTANCE_TYPES, SOFTLAYER_TEMPLATES
+
+To order that example, you would:
+
+SoftLayer = get_driver(Provider.SOFTLAYER) 
+driver = SoftLayer('SL12345', 'YOUR-VERY-SECRET_KEY') # change these
+        
+result = driver.create_node(template='example', 
+                            virtualGuests=[{'hostname': 'testhost', 
+                                        'domain': 'testdomain.com'}])
+
 """
 
 import xmlrpclib
 
 import libcloud
 from libcloud.types import Provider
-from libcloud.base import NodeDriver, Node
+from libcloud.base import NodeDriver, Node, NodeSize
 
 API_PREFIX = "http://api.service.softlayer.com/xmlrpc/v3"
+
+# TODO: should use the codes WDC01 etc instead
+SOFTLAYER_LOCATION_DALLAS = 3 
+SOFTLAYER_LOCATION_SEATTLE = 18171
+SOFTLAYER_LOCATION_WASHINGTON_DC = 37473
+
+
+SOFTLAYER_HOURLY = 'HOURLY'
+SOFTLAYER_MONTHLY = 'MONTHLY'
+
+SOFTLAYER_INSTANCE_TYPES = {
+    'example': {
+        'id': 'example',
+        'name': 'Example CCI WDC01 2-core 2GB 100GB 1Gbps',
+        'ram': 2048,
+        'disk': 100,
+        'bandwidth': None,
+        'price': None # TODO... 
+    }
+}
+
+SOFTLAYER_TEMPLATES = {
+    'example': {
+                'complexType': 'SoftLayer_Container_Product_Order_Virtual_Guest',
+                'location': SOFTLAYER_LOCATION_WASHINGTON_DC,
+                'packageId': 46,
+                'prices': [
+                           {'id': 1641}, # 2 x 2.0 GHz Cores
+                           {'id': 1645}, # 2GB
+                           {'id': 905},  # Reboot / Remote Console 
+                           {'id': 274},  # 1000 Mbps Public & Private Networks
+                           {'id': 1800}, # 0 GB Bandwidth
+                           {'id': 21},   # 1 IP Adress
+                           {'id': 1639}, # 100 GB (SAN)
+                           {'id': 1696}, # Debian GNU/Linux 5.0 Lenny/Stable - Minimal Install (32 bit)
+                           {'id': 55},   # Host Ping
+                           {'id': 57},   # Email and Ticket
+                           {'id': 58},   # Automated Notification
+                           {'id': 420},  # Unlimited SSL VPN Users & 1 PPTP VPN User per account
+                           {'id': 418}   # Nessus Vulnerability Assessment & Reporting
+                           ],
+                'quantity': 1,
+                'useHourlyPricing': True,
+                'virtualGuests': \
+                    [{'domain': 'example.org', 'hostname': 'newcci'}]
+                }
+}  
 
 class SoftLayerException(Exception):
     pass
@@ -89,6 +189,9 @@ class SoftLayerNodeDriver(NodeDriver):
     connectionCls = SoftLayerConnection
     name = 'SoftLayer'
     type = Provider.SOFTLAYER
+    
+    
+    _instance_types = SOFTLAYER_INSTANCE_TYPES
 
     def __init__(self, key, secret=None, secure=False):
         self.key = key
@@ -123,13 +226,58 @@ class SoftLayerNodeDriver(NodeDriver):
     def _to_nodes(self, hosts):
         return [self._to_node(h) for h in hosts]
 
+    def create_node(self, **kwargs):
+        """Order SoftLayer hardware or virtualGuest
+        
+        NOTE: WORK IN PROGRESS
+        
+        See that request at end and it's comment
+        
+        TODO: Ordering hardware
+
+        # TODO: virtualGuests documentation
+        
+        # TODO: quantity
+        
+        # TODO: hourly,monthly pricing (this is maybe better left in templates)
+
+        See L{NodeDriver.create_node} for more keyword args.
+
+        @keyword    template: Order template name
+        @type       template: C{str}
+        
+        
+        """
+        
+        if not 'template' in kwargs:
+            # TODO, throw exception or ?
+            return None
+                
+        template = kwargs["template"]
+    
+        if not template in SOFTLAYER_TEMPLATES:
+            # TODO ...
+            return None
+    
+        order = SOFTLAYER_TEMPLATES[template]
+    
+        if 'virtualGuests' in kwargs:
+            order['virtualGuests'] = kwargs['virtualGuests']
+            
+    
+        result = self.connection.request(
+                "SoftLayer_Product_Order",
+                "verifyOrder", # change this to placeOrder and it works :)
+                order
+                )
+    
+        # the node is not instantly available, can take a few minutes
+        return None
+    
+    
     def destroy_node(self, node):
         
-        if not 'virtual' in node.extra:
-            return False
-        
-        if node.extra['virtual'] == False:
-            return False
+        # TODO: check if hardware or virtualGuest!
         
         billing_item = self.connection.request(
             "SoftLayer_Virtual_Guest",
@@ -146,6 +294,8 @@ class SoftLayerNodeDriver(NodeDriver):
             return res
         else:
             return False
+
+    
 
     def list_nodes(self):
         """Returns all running nodes, including hardware and virtualGuests
@@ -168,9 +318,6 @@ class SoftLayerNodeDriver(NodeDriver):
         
         account = self.connection.request('SoftLayer_Account', 'getObject', object_mask = mask)
         
-        from pprint import pprint
-        pprint(account)
-        
         hardware = self._to_nodes(
             account['hardware']
         )
@@ -180,9 +327,13 @@ class SoftLayerNodeDriver(NodeDriver):
         )
         
         return hardware+virtualguests
-        
+     
+    def list_sizes(self, location=None):
+        return [ NodeSize(driver=self.connection.driver, **i) 
+                    for i in self._instance_types.values() ]   
 
     def reboot_node(self, node):
+        # TODO: hardware support again
         res = self.connection.request(
             "SoftLayer_Virtual_Guest", 
             "rebootHard", 
