@@ -243,34 +243,22 @@ class SoftLayerNodeDriver(NodeDriver):
     def create_node(self, **kwargs):
         """Order SoftLayer hardware or virtualGuest
         
-        NOTE: WORK IN PROGRESS
-        
-        See that request at end and it's comment
-        
-        TODO: Ordering hardware
-
-        # TODO: virtualGuests documentation
-        
-        # TODO: quantity
-        
-        # TODO: hourly,monthly pricing (this is maybe better left in templates)
-
         See L{NodeDriver.create_node} for more keyword args.
 
         @keyword    template: Order template name
         @type       template: C{str}
         
+        @keyword    virtualGuests: Virtual guest(s) host names and domains
+        @type       virtualGuests: C{dict}
         
         """
 
         if not 'template' in kwargs:
-            # TODO, throw exception or ?
             return None
 
         template = kwargs["template"]
 
         if not template in SOFTLAYER_TEMPLATES:
-            # TODO ...
             return None
 
         order = SOFTLAYER_TEMPLATES[template]
@@ -278,16 +266,14 @@ class SoftLayerNodeDriver(NodeDriver):
         if 'virtualGuests' in kwargs:
             order['virtualGuests'] = kwargs['virtualGuests']
 
-
         result = self.connection.request(
                 "SoftLayer_Product_Order",
-                "verifyOrder", # change this to placeOrder and it works :)
+                "placeOrder",
                 order
                 )
 
-        # the node is not instantly available, can take a few minutes
+        # the node is not instantly available trough API, can take a few minutes
         return None
-
 
     def destroy_node(self, node):
 
