@@ -20,20 +20,18 @@ import xmlrpclib
 
 import libcloud
 from libcloud.types import Provider
-from libcloud.base import NodeDriver, Node, NodeSize
+from libcloud.base import NodeDriver, Node, NodeSize, NodeLocation
 
 API_PREFIX = "http://api.service.softlayer.com/xmlrpc/v3"
 
-# Services
+DATACENTERS = ['sea01', 'wdc01', 'dal01']
+
+SOFTLAYER_LOCATION_DAL01 = 3       # Dallas
+SOFTLAYER_LOCATION_SEA01 = 18171   # Seattle
+SOFTLAYER_LOCATION_WDC01 = 37473   # Washington DC
 
 SOFTLAYER_SERVICE_HARDWARE = 'SoftLayer_Hardware'
 SOFTLAYER_SERVICE_VIRTUAL_GUEST = 'SoftLayer_Virtual_Guest'
-
-# TODO: should use the codes WDC01 etc instead
-SOFTLAYER_LOCATION_DALLAS = 3
-SOFTLAYER_LOCATION_SEATTLE = 18171
-SOFTLAYER_LOCATION_WASHINGTON_DC = 37473
-
 
 SOFTLAYER_HOURLY = 'HOURLY'
 SOFTLAYER_MONTHLY = 'MONTHLY'
@@ -52,7 +50,7 @@ SOFTLAYER_INSTANCE_TYPES = {
 SOFTLAYER_TEMPLATES = {
     'example': {
                 'complexType': 'SoftLayer_Container_Product_Order_Virtual_Guest',
-                'location': SOFTLAYER_LOCATION_WASHINGTON_DC,
+                'location': SOFTLAYER_LOCATION_WDC01,
                 'packageId': 46,
                 'prices': [
                            {'id': 1641}, # 2 x 2.0 GHz Cores
@@ -221,6 +219,25 @@ class SoftLayerNodeDriver(NodeDriver):
 
         # the node is not instantly available trough API, can take a few minutes
         return None
+    
+    def _to_loc(self, loc):
+        return NodeLocation(
+            id=loc['id'],
+            name=loc['name'],
+            country="", # country data not available
+            driver=self
+        )
+ 
+    def list_locations(self):
+        res = self.connection.request(
+            "SoftLayer_Location_Datacenter",
+            "getDatacenters"
+        )
+ 
+        # checking "in DATACENTERS", because some of the locations returned by 
+        # getDatacenters are not useable.
+        return [self._to_loc(l) for l in res if l['name'] in DATACENTERS]
+ 
 
     def destroy_node(self, node):
 
