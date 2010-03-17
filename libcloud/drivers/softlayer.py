@@ -16,59 +16,6 @@
 Softlayer driver
 """
 
-"""
-Get familiar with SoftLayer API:
-
-http://sldn.softlayer.com/wiki/index.php/The_SoftLayer_API
-
-Thread about XML-RPC complexType support:
-
-http://forums.softlayer.com/showthread.php?t=4756
-
-XML-RPC ordering Python example from klaude:
-
-http://gist.github.com/328806
-"""
-
-"""
-It's possible to construct a wide variety of orders
-
-You can get sample templates by manually ordering and then:
-
-virtual_guest_id = 12345 # get this from node.id
-
-template = driver.connection.request(
-                "SoftLayer_Virtual_Guest",
-                "getOrderTemplate",
-                'HOURLY',
-                id=virtual_guest_id)
-                
-from pprint import pprint
-pprint(template)
-
-This will return a lot of data but you can extract the price IDs from there
-
-
-There's one example in SOFTLAYER_INSTANCE_TYPES, SOFTLAYER_TEMPLATES
-
-To order that example, you would:
-
-SoftLayer = get_driver(Provider.SOFTLAYER) 
-driver = SoftLayer('SL12345', 'YOUR-VERY-SECRET_KEY') # change these
-        
-result = driver.create_node(template='example', 
-                            virtualGuests=[{'hostname': 'testhost', 
-                                        'domain': 'testdomain.com'}])
-
-
-Notes for developers
-====================
-
-- virtualGuest and hardware services and data structures differ
-- just after ordering, some data may be missing (like IP addresses)
-
-"""
-
 import xmlrpclib
 
 import libcloud
@@ -80,7 +27,7 @@ API_PREFIX = "http://api.service.softlayer.com/xmlrpc/v3"
 # Services
 
 SOFTLAYER_SERVICE_HARDWARE = 'SoftLayer_Hardware'
-SOFTLAYER_SERVICE_VIRTUAl_GUEST = 'SoftLayer_Virtual_Guest'
+SOFTLAYER_SERVICE_VIRTUAL_GUEST = 'SoftLayer_Virtual_Guest'
 
 # TODO: should use the codes WDC01 etc instead
 SOFTLAYER_LOCATION_DALLAS = 3
@@ -213,7 +160,7 @@ class SoftLayerNodeDriver(NodeDriver):
     def _to_node(self, host):
         """Convert SoftLayer data to libcloud Node
         
-        Note: hardware and virtualGuests data doesn't have same structure
+        Note: hardware and virtualGuests data do not have same structure
         
         Note: original host data from SL is stored to extra
         """
@@ -225,12 +172,12 @@ class SoftLayerNodeDriver(NodeDriver):
         if 'hardwareStatusId' in host:
             statusId = host['hardwareStatusId']
             host['_service'] = SOFTLAYER_SERVICE_HARDWARE
-        
+
         return Node(
             id=host['id'],
             name=host['hostname'],
             state=statusId,
-            # Note: IP addresses may be missing just after order
+            # IP addresses may be missing just after order
             public_ip=host['primaryIpAddress'] or None,
             private_ip=host['primaryBackendIpAddress'] or None,
             driver=self,
@@ -277,45 +224,43 @@ class SoftLayerNodeDriver(NodeDriver):
 
     def destroy_node(self, node):
 
-        # TODO: check if hardware or virtualGuest!
-        
         if not '_service' in node.extra:
             return False
-        
+
         service = node.extra['_service']
 
         billing_items = []
 
         if service is SOFTLAYER_SERVICE_HARDWARE:
-            
+
             # this is usable only for hourly bare metal instances
             # getCurrentBillingDetail throws exception for other types
-            
-            if 'bareMetalInstanceFlag'  not in node.extra:                
+
+            if 'bareMetalInstanceFlag'  not in node.extra:
                 return False
-            
-            if node.extra['bareMetalInstanceFlag'] is not 1:                
+
+            if node.extra['bareMetalInstanceFlag'] is not 1:
                 return False
-                        
-            if node.extra['hourlyBillingFlag'] is False:                
+
+            if node.extra['hourlyBillingFlag'] is False:
                 return False
 
             billing_items = self.connection.request(
-                                                         service,
-                                                         'getCurrentBillingDetail',
-                                                         id=node.id
-                                                         )
-            
+                                                    service,
+                                                    'getCurrentBillingDetail',
+                                                    id=node.id
+                                                    )
+
         elif service is SOFTLAYER_SERVICE_VIRTUAL_GUEST:
             billing_items = [self.connection.request(
-                                                   service,
-                                                   "getBillingItem",
-                                                   id=node.id
-                                                   )
-            ]            
+                                                     service,
+                                                     "getBillingItem",
+                                                     id=node.id
+                                                    )
+            ]
         else:
             return False
-            
+
         if len(billing_items) == 0:
             return False
 
@@ -328,7 +273,7 @@ class SoftLayerNodeDriver(NodeDriver):
             if result is False:
                 return False
 
-        return success
+        return True
 
     def list_nodes(self):
         """Returns all running nodes, including hardware and virtualGuests
@@ -367,7 +312,7 @@ class SoftLayerNodeDriver(NodeDriver):
                     for i in self._instance_types.values() ]
 
     def reboot_node(self, node):
-        # TODO: hardware support again
+        # TODO: hardware support 
         res = self.connection.request(
             "SoftLayer_Virtual_Guest",
             "rebootHard",
