@@ -335,16 +335,30 @@ class SoftLayerNodeDriver(NodeDriver):
         return [ NodeSize(driver=self.connection.driver, **i)
                     for i in self._instance_types.values() ]
 
-    def reboot_node(self, node):
+    def reboot_node(self, node, method='hard'):
+        """Reboot node
+        
+        @keyword    method: Method: default, hard or soft
+        @type       method: C{str}
+        """
         
         if not '_service' in node.extra:
+            return False
+
+        REBOOT_METHODS={
+                 'default': 'rebootDefault', 
+                 'hard': 'rebootHard',
+                 'soft': 'rebootSoft'
+                 }
+        
+        if not method in REBOOT_METHODS:
             return False
 
         service = node.extra['_service']
         
         res = self.connection.request(
             service,
-            "rebootHard",
+            REBOOT_METHODS[method],
             id=node.id
         )
         return res
