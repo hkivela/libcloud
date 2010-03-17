@@ -24,7 +24,11 @@ from libcloud.base import NodeDriver, Node, NodeSize, NodeLocation
 
 API_PREFIX = "http://api.service.softlayer.com/xmlrpc/v3"
 
-DATACENTERS = ['sea01', 'wdc01', 'dal01']
+DATACENTERS = {
+               'sea01': {'country': 'US'},
+               'wdc01': {'country': 'US'},
+               'dal01': {'country': 'US'}
+               }
 
 SOFTLAYER_LOCATION_DAL01 = 3       # Dallas
 SOFTLAYER_LOCATION_SEA01 = 18171   # Seattle
@@ -224,16 +228,19 @@ class SoftLayerNodeDriver(NodeDriver):
         return NodeLocation(
             id=loc['id'],
             name=loc['name'],
-            country="", # country data not available
+            country=DATACENTERS[loc['name']]['country'],
             driver=self
         )
  
     def list_locations(self):
+        mask = {'SoftLayer_Location': {'regions': {}}}
+        
         res = self.connection.request(
             "SoftLayer_Location_Datacenter",
-            "getDatacenters"
+            "getDatacenters",
+            object_mask = mask
         )
- 
+        
         # checking "in DATACENTERS", because some of the locations returned by 
         # getDatacenters are not useable.
         return [self._to_loc(l) for l in res if l['name'] in DATACENTERS]
