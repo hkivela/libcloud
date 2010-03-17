@@ -336,9 +336,14 @@ class SoftLayerNodeDriver(NodeDriver):
                     for i in self._instance_types.values() ]
 
     def reboot_node(self, node):
-        # TODO: hardware support 
+        
+        if not '_service' in node.extra:
+            return False
+
+        service = node.extra['_service']
+        
         res = self.connection.request(
-            "SoftLayer_Virtual_Guest",
+            service,
             "rebootHard",
             id=node.id
         )
